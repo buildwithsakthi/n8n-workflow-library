@@ -1,0 +1,127 @@
+{
+  "name": "New Lead to CRM + Slack Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-lead",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "d4e5f6a7-0004-0004-0004-000000000001",
+      "name": "Webhook - Receive Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "webhookId": "new-lead-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise and validate the inbound payload.\n// Works with Typeform, Tally, custom forms, or any POST body.\nconst body = $json.body || $json;\n\nconst firstName = (body.first_name || body.firstName || body.name?.split(' ')[0] || 'Unknown').trim();\nconst lastName = (body.last_name || body.lastName || body.name?.split(' ').slice(1).join(' ') || '').trim();\nconst email = (body.email || '').toLowerCase().trim();\nconst phone = body.phone || body.phone_number || '';\nconst company = body.company || body.company_name || '';\nconst message = body.message || body.notes || '';\nconst source = body.utm_source || body.source || 'website';\n\nif (!email) throw new Error('Lead missing email — cannot create CRM contact.');\n\nreturn [{ json: { firstName, lastName, email, phone, company, message, source, receivedAt: new Date().toISOString() } }];"
+      },
+      "id": "d4e5f6a7-0004-0004-0004-000000000002",
+      "name": "Normalise Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "resource": "contact",
+        "operation": "create",
+        "additionalFields": {
+          "email": "={{ $json.email }}",
+          "firstName": "={{ $json.firstName }}",
+          "lastName": "={{ $json.lastName }}",
+          "phone": "={{ $json.phone }}",
+          "company": "={{ $json.company }}",
+          "lifecycleStage": "lead",
+          "leadStatus": "NEW",
+          "properties": {
+            "values": [
+              { "name": "hs_lead_status", "value": "NEW" },
+              { "name": "lead_source", "value": "={{ $json.source }}" },
+              { "name": "message", "value": "={{ $json.message }}" }
+            ]
+          }
+        }
+      },
+      "id": "d4e5f6a7-0004-0004-0004-000000000003",
+      "name": "HubSpot - Create Contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "REPLACE_WITH_YOUR_HUBSPOT_CREDENTIAL_ID",
+          "name": "HubSpot App Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_SALES_CHANNEL_ID",
+          "mode": "id"
+        },
+        "text": "=🎯 *New Lead Received!*\n\n*Name:* {{ $('Normalise Lead Data').first().json.firstName }} {{ $('Normalise Lead Data').first().json.lastName }}\n*Email:* {{ $('Normalise Lead Data').first().json.email }}\n*Company:* {{ $('Normalise Lead Data').first().json.company || 'Not provided' }}\n*Source:* {{ $('Normalise Lead Data').first().json.source }}\n\n*Message:* {{ $('Normalise Lead Data').first().json.message || 'No message' }}\n\n👉 <https://app.hubspot.com/contacts/|View in HubSpot>",
+        "otherOptions": {
+          "unfurl_links": false
+        }
+      },
+      "id": "d4e5f6a7-0004-0004-0004-000000000004",
+      "name": "Slack - Notify Sales Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_YOUR_SLACK_CREDENTIAL_ID",
+          "name": "Slack Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\": \"received\", \"message\": \"Thank you! We will be in touch shortly.\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "d4e5f6a7-0004-0004-0004-000000000005",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Lead": {
+      "main": [[{ "node": "Normalise Lead Data", "type": "main", "index": 0 }]]
+    },
+    "Normalise Lead Data": {
+      "main": [[{ "node": "HubSpot - Create Contact", "type": "main", "index": 0 }]]
+    },
+    "HubSpot - Create Contact": {
+      "main": [[{ "node": "Slack - Notify Sales Team", "type": "main", "index": 0 }]]
+    },
+    "Slack - Notify Sales Team": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "id": "wf-new-lead-crm-slack-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "n8n-workflow-library"
+  },
+  "tags": [{ "name": "crm" }, { "name": "hubspot" }, { "name": "slack" }, { "name": "lead-gen" }]
+}

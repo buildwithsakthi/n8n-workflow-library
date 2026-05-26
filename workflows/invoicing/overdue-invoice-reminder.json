@@ -1,0 +1,328 @@
+{
+  "name": "Overdue Invoice Reminder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000001",
+      "name": "Schedule - Daily 10AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "base": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Invoices",
+          "mode": "name"
+        },
+        "filterByFormula": "AND({Status} = 'Unpaid', {Due Date} < TODAY())",
+        "options": {
+          "fields": ["Invoice Number", "Customer Name", "Customer Email", "Amount", "Currency", "Due Date", "Invoice Date", "Reminders Sent", "Last Reminder Date"]
+        }
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000002",
+      "name": "Airtable - Get Overdue Invoices",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_WITH_YOUR_AIRTABLE_CREDENTIAL_ID",
+          "name": "Airtable Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determine which reminder step each invoice should receive today.\n// Reminder windows: Day 3, Day 7, Day 14 after due date (with ±1 day buffer).\nconst now = new Date();\nconst results = [];\n\nfor (const item of $input.all()) {\n  const record = item.json;\n  const fields = record.fields || record;\n  \n  const dueDate = new Date(fields['Due Date']);\n  const daysSinceDue = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));\n  const remindersSent = parseInt(fields['Reminders Sent'] || '0', 10);\n  const customerEmail = fields['Customer Email'];\n  const invoiceNumber = fields['Invoice Number'] || 'N/A';\n  \n  if (!customerEmail) continue; // Can't send without email\n  \n  // Only send if we haven't already sent this reminder\n  let reminderStep = null;\n  if (daysSinceDue >= 3  && daysSinceDue <= 4  && remindersSent < 1) reminderStep = 1;\n  if (daysSinceDue >= 7  && daysSinceDue <= 8  && remindersSent < 2) reminderStep = 2;\n  if (daysSinceDue >= 14 && daysSinceDue <= 15 && remindersSent < 3) reminderStep = 3;\n  \n  if (reminderStep === null) continue;\n  \n  results.push({\n    json: {\n      recordId: record.id,\n      invoiceNumber,\n      customerName: fields['Customer Name'] || 'Customer',\n      customerEmail,\n      amount: parseFloat(fields['Amount'] || '0').toFixed(2),\n      currency: fields['Currency'] || 'USD',\n      dueDate: new Date(fields['Due Date']).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),\n      daysSinceDue,\n      reminderStep,\n      remindersSent\n    }\n  });\n}\n\nif (results.length === 0) return [{ json: { skip: true, message: 'No invoices due for reminders today' } }];\nreturn results;"
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000003",
+      "name": "Classify Reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000004",
+      "name": "IF - Has Reminders to Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [{ "leftValue": "={{ $json.reminderStep }}", "rightValue": 1, "operator": { "type": "number", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "Reminder 1"
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [{ "leftValue": "={{ $json.reminderStep }}", "rightValue": 2, "operator": { "type": "number", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "Reminder 2"
+            },
+            {
+              "conditions": {
+                "options": {},
+                "conditions": [{ "leftValue": "={{ $json.reminderStep }}", "rightValue": 3, "operator": { "type": "number", "operation": "equals" } }]
+              },
+              "renameOutput": true,
+              "outputKey": "Reminder 3"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000005",
+      "name": "Switch - Reminder Step",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.customerEmail }}",
+        "subject": "Friendly reminder: Invoice {{ $json.invoiceNumber }} is overdue",
+        "emailType": "html",
+        "message": "<p>Hi {{ $json.customerName }},</p><p>I hope you're well! I wanted to send a friendly reminder that invoice <strong>{{ $json.invoiceNumber }}</strong> for <strong>{{ $json.currency }} ${{ $json.amount }}</strong> was due on {{ $json.dueDate }}.</p><p>If you've already sent payment, please disregard this message — and thank you!</p><p>If you have any questions about the invoice, I'm happy to help. You can reply to this email or pay directly at [Payment Link].</p><p>Thank you,<br><strong>[Your Company Name]</strong></p>",
+        "options": {}
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000006",
+      "name": "Gmail - Reminder 1 (Day 3)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1250, 100],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.customerEmail }}",
+        "subject": "Second notice: Invoice {{ $json.invoiceNumber }} — {{ $json.daysSinceDue }} days overdue",
+        "emailType": "html",
+        "message": "<p>Hi {{ $json.customerName }},</p><p>I sent a reminder last week regarding invoice <strong>{{ $json.invoiceNumber }}</strong> for <strong>{{ $json.currency }} ${{ $json.amount }}</strong>, which was due on {{ $json.dueDate }}.</p><p>We haven't received payment yet. Could you let us know when we can expect it, or if there's an issue we can help resolve?</p><p>You can pay at [Payment Link] or reply to this email if you'd like to discuss.</p><p>Thank you,<br><strong>[Your Company Name]</strong></p>",
+        "options": {}
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000007",
+      "name": "Gmail - Reminder 2 (Day 7)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.customerEmail }}",
+        "subject": "Final notice: Invoice {{ $json.invoiceNumber }} — immediate action required",
+        "emailType": "html",
+        "message": "<p>Hi {{ $json.customerName }},</p><p>This is our final notice regarding invoice <strong>{{ $json.invoiceNumber }}</strong> for <strong>{{ $json.currency }} ${{ $json.amount }}</strong>, now {{ $json.daysSinceDue }} days overdue.</p><p>If payment is not received within 7 days, we may need to pause services and/or escalate this matter.</p><p>To resolve this immediately, please pay at [Payment Link] or contact us to arrange a payment plan.</p><p>If you believe this is an error, please reply to this email right away.</p><p>Regards,<br><strong>[Your Company Name]</strong></p>",
+        "options": {}
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000008",
+      "name": "Gmail - Reminder 3 (Day 14)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1250, 500],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Invoices",
+          "mode": "name"
+        },
+        "id": "={{ $json.recordId }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Reminders Sent": "={{ $json.remindersSent + 1 }}",
+            "Last Reminder Date": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000009",
+      "name": "Airtable - Increment Reminder Count",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1500, 100],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_WITH_YOUR_AIRTABLE_CREDENTIAL_ID",
+          "name": "Airtable Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Invoices",
+          "mode": "name"
+        },
+        "id": "={{ $json.recordId }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Reminders Sent": "={{ $json.remindersSent + 1 }}",
+            "Last Reminder Date": "={{ $now.toISO() }}"
+          }
+        }
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000010",
+      "name": "Airtable - Increment Reminder Count 2",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1500, 300],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_WITH_YOUR_AIRTABLE_CREDENTIAL_ID",
+          "name": "Airtable Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Invoices",
+          "mode": "name"
+        },
+        "id": "={{ $json.recordId }}",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Reminders Sent": "={{ $json.remindersSent + 1 }}",
+            "Last Reminder Date": "={{ $now.toISO() }}",
+            "Status": "Escalated"
+          }
+        }
+      },
+      "id": "a7b8c9d0-0007-0007-0007-000000000011",
+      "name": "Airtable - Mark Escalated",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [1500, 500],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_WITH_YOUR_AIRTABLE_CREDENTIAL_ID",
+          "name": "Airtable Token"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule - Daily 10AM": {
+      "main": [[{ "node": "Airtable - Get Overdue Invoices", "type": "main", "index": 0 }]]
+    },
+    "Airtable - Get Overdue Invoices": {
+      "main": [[{ "node": "Classify Reminders", "type": "main", "index": 0 }]]
+    },
+    "Classify Reminders": {
+      "main": [[{ "node": "IF - Has Reminders to Send?", "type": "main", "index": 0 }]]
+    },
+    "IF - Has Reminders to Send?": {
+      "main": [
+        [{ "node": "Switch - Reminder Step", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Switch - Reminder Step": {
+      "main": [
+        [{ "node": "Gmail - Reminder 1 (Day 3)", "type": "main", "index": 0 }],
+        [{ "node": "Gmail - Reminder 2 (Day 7)", "type": "main", "index": 0 }],
+        [{ "node": "Gmail - Reminder 3 (Day 14)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gmail - Reminder 1 (Day 3)": {
+      "main": [[{ "node": "Airtable - Increment Reminder Count", "type": "main", "index": 0 }]]
+    },
+    "Gmail - Reminder 2 (Day 7)": {
+      "main": [[{ "node": "Airtable - Increment Reminder Count 2", "type": "main", "index": 0 }]]
+    },
+    "Gmail - Reminder 3 (Day 14)": {
+      "main": [[{ "node": "Airtable - Mark Escalated", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "id": "wf-overdue-invoice-reminder-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "n8n-workflow-library"
+  },
+  "tags": [{ "name": "invoicing" }, { "name": "airtable" }, { "name": "email" }, { "name": "payments" }]
+}

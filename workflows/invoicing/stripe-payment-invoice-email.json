@@ -1,0 +1,127 @@
+{
+  "name": "Stripe Payment → Invoice + Thank You Email",
+  "nodes": [
+    {
+      "parameters": {
+        "events": ["payment_intent.succeeded"]
+      },
+      "id": "f6a7b8c9-0006-0006-0006-000000000001",
+      "name": "Stripe Trigger - Payment Succeeded",
+      "type": "n8n-nodes-base.stripeTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "webhookId": "stripe-payment-webhook",
+      "credentials": {
+        "stripeApi": {
+          "id": "REPLACE_WITH_YOUR_STRIPE_CREDENTIAL_ID",
+          "name": "Stripe Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stripe sends a nested event object. Extract what we need for the invoice.\nconst event = $json;\nconst paymentIntent = event.data?.object || {};\n\nconst amountDollars = (paymentIntent.amount || 0) / 100;\nconst currency = (paymentIntent.currency || 'usd').toUpperCase();\nconst customerId = paymentIntent.customer || null;\nconst paymentId = paymentIntent.id || 'pi_unknown';\nconst description = paymentIntent.description || 'Payment';\nconst receiptEmail = paymentIntent.receipt_email || paymentIntent.metadata?.email || null;\nconst customerName = paymentIntent.metadata?.customer_name || paymentIntent.metadata?.name || 'Valued Customer';\nconst invoiceNumber = 'INV-' + Date.now();\nconst paidAt = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });\n\nif (!receiptEmail) throw new Error(`Payment ${paymentId} has no receipt_email — cannot send invoice. Add email to Stripe metadata.`);\n\nreturn [{\n  json: {\n    paymentId,\n    customerId,\n    customerName,\n    receiptEmail,\n    amountDollars: amountDollars.toFixed(2),\n    currency,\n    description,\n    invoiceNumber,\n    paidAt\n  }\n}];"
+      },
+      "id": "f6a7b8c9-0006-0006-0006-000000000002",
+      "name": "Extract Payment Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.documint.me/1/templates/REPLACE_WITH_TEMPLATE_ID/render",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "test": false,
+          "data": {
+            "invoice_number": "={{ $json.invoiceNumber }}",
+            "customer_name": "={{ $json.customerName }}",
+            "customer_email": "={{ $json.receiptEmail }}",
+            "payment_id": "={{ $json.paymentId }}",
+            "amount": "={{ $json.amountDollars }}",
+            "currency": "={{ $json.currency }}",
+            "description": "={{ $json.description }}",
+            "paid_at": "={{ $json.paidAt }}",
+            "company_name": "REPLACE_WITH_YOUR_COMPANY_NAME",
+            "company_address": "REPLACE_WITH_YOUR_COMPANY_ADDRESS"
+          }
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "f6a7b8c9-0006-0006-0006-000000000003",
+      "name": "Documint - Generate PDF Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [500, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_DOCUMINT_CREDENTIAL_ID",
+          "name": "Documint API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Extract Payment Data').first().json.receiptEmail }}",
+        "subject": "Your receipt from [Your Company] — {{ $('Extract Payment Data').first().json.invoiceNumber }}",
+        "emailType": "html",
+        "message": "<!DOCTYPE html>\n<html>\n<body style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;\">\n  <div style=\"background: #f8f9fa; border-radius: 8px; padding: 30px; text-align: center; margin-bottom: 30px;\">\n    <h1 style=\"color: #22c55e; margin: 0;\">Payment Confirmed ✓</h1>\n  </div>\n  \n  <p>Hi {{ $('Extract Payment Data').first().json.customerName }},</p>\n  \n  <p>Thank you for your payment! We're delighted to confirm that your transaction was successful.</p>\n  \n  <div style=\"background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0;\">\n    <table width=\"100%\" cellpadding=\"8\">\n      <tr>\n        <td style=\"color: #666;\">Invoice Number</td>\n        <td style=\"text-align: right; font-weight: bold;\">{{ $('Extract Payment Data').first().json.invoiceNumber }}</td>\n      </tr>\n      <tr>\n        <td style=\"color: #666;\">Amount Paid</td>\n        <td style=\"text-align: right; font-weight: bold; color: #22c55e;\">{{ $('Extract Payment Data').first().json.currency }} ${{ $('Extract Payment Data').first().json.amountDollars }}</td>\n      </tr>\n      <tr>\n        <td style=\"color: #666;\">Date</td>\n        <td style=\"text-align: right;\">{{ $('Extract Payment Data').first().json.paidAt }}</td>\n      </tr>\n      <tr>\n        <td style=\"color: #666;\">Description</td>\n        <td style=\"text-align: right;\">{{ $('Extract Payment Data').first().json.description }}</td>\n      </tr>\n    </table>\n  </div>\n  \n  <p>Your invoice is attached to this email as a PDF. Please keep it for your records.</p>\n  \n  <p>If you have any questions, just reply to this email — we're happy to help!</p>\n  \n  <p style=\"margin-top: 30px;\">Warm regards,<br><strong>[Your Company Name]</strong></p>\n</body>\n</html>",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [{ "property": "data" }]
+          }
+        }
+      },
+      "id": "f6a7b8c9-0006-0006-0006-000000000004",
+      "name": "Gmail - Send Thank You + Invoice",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [750, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REPLACE_WITH_YOUR_GMAIL_CREDENTIAL_ID",
+          "name": "Gmail Account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Stripe Trigger - Payment Succeeded": {
+      "main": [[{ "node": "Extract Payment Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Payment Data": {
+      "main": [[{ "node": "Documint - Generate PDF Invoice", "type": "main", "index": 0 }]]
+    },
+    "Documint - Generate PDF Invoice": {
+      "main": [[{ "node": "Gmail - Send Thank You + Invoice", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "id": "wf-stripe-invoice-email-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "n8n-workflow-library"
+  },
+  "tags": [{ "name": "stripe" }, { "name": "invoicing" }, { "name": "email" }, { "name": "payments" }]
+}
