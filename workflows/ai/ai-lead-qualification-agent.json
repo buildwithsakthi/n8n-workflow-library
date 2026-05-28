@@ -106,8 +106,16 @@
     {
       "parameters": {
         "operation": "create",
-        "baseId": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
-        "tableId": "Leads",
+        "base": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
@@ -144,7 +152,7 @@
           "value": "REPLACE_WITH_HOT_LEADS_CHANNEL_ID",
           "mode": "id"
         },
-        "text": "🔥 *HOT LEAD — Score: {{ $json.score }}/100*\n\n*Name:* {{ $json.name }}\n*Company:* {{ $json.company }}\n*Role:* {{ $json.role }}\n*Email:* {{ $json.email }}\n\n*AI Reasoning:* {{ $json.reasoning }}\n*Suggested Action:* {{ $json.suggested_action }}",
+        "text": "=🔥 *HOT LEAD — Score: {{ $json.score }}/100*\n\n*Name:* {{ $json.name }}\n*Company:* {{ $json.company }}\n*Role:* {{ $json.role }}\n*Email:* {{ $json.email }}\n\n*AI Reasoning:* {{ $json.reasoning }}\n*Suggested Action:* {{ $json.suggested_action }}",
         "otherOptions": {
           "unfurl_links": false
         }
@@ -164,8 +172,16 @@
     {
       "parameters": {
         "operation": "create",
-        "baseId": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
-        "tableId": "Leads",
+        "base": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_AIRTABLE_BASE_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
